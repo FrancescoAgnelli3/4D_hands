@@ -12,7 +12,7 @@ def train(model, times, train_loader, optimizer, criterion, device, scheduler):
     batch_num = 0
     for batch in tqdm(train_loader):
         batch = tuple(b.to(device, dtype=torch.float) for b in batch)
-        *valid_coeffs, label = batch
+        *valid_coeffs, action, label, obj, id = batch
         spline = controldiffeq.NaturalCubicSpline(times.to(device), valid_coeffs)
         optimizer.zero_grad()
         output = model(spline, times[:int(0.9*len(times))].to(device))
