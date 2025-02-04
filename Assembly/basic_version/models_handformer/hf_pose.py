@@ -5,8 +5,8 @@ sys.path.insert(0, '')
 
 import torch
 import torch.nn as nn
-from thop import profile
-from fvcore.nn.flop_count import flop_count
+# from thop import profile
+# from fvcore.nn.flop_count import flop_count
 from tqdm import tqdm
 import time
 
@@ -39,7 +39,7 @@ def normalize_tensor(tensor):
 
 class HF_Pose(nn.Module):
     def __init__(self, microaction_window_size, num_joints, num_classes, 
-                 embedding_dim_final=256, use_2d_pose=False, dropout=0, microaction_overlap=0.0, # [0.0, 0.99)
+                 embedding_dim_final=64, use_2d_pose=False, dropout=0, microaction_overlap=0.0, # [0.0, 0.99)
                  trajectory_atten_dim_per_head=4, trajectory_tcn_kernel_size=3, trajectory_tcn_stride=[1,2,2], trajectory_tcn_dilations=[1,2],
                  use_global_wrist_reference=True, include_orientation_in_global_wrist_ref=True, use_both_wrists=True, separate_hands=True,
                  tf_heads=8, tf_layers=2):
@@ -118,8 +118,17 @@ class HF_Pose(nn.Module):
         return model_dict
 
 
-    def forward(self, x, x_rgb=None, return_atten_map=False):
-        # x: N, C, T, V, M
+    def forward(self, spline, times, x_rgb=None, return_atten_map=False):
+        # x shape target: N, C, T, V, M
+        x = []
+        for i in range(len(times)):
+            x.append(spline.evaluate(i))
+        x = torch.stack(x, dim=0).permute(1, 0, 2, 3)
+
+        # Reshape input to BxCxTxN
+        x = x.permute(0, 3, 1, 2)  # BxTxNxC -> BxCxTxN
+        x = x.unsqueeze(-1).reshape(x.shape[0], x.shape[1], x.shape[2], int(x.shape[3]/2), 2) # BxCxTxVxM
+
         if self.use_global_wrist_reference:
             if self.include_orientation_in_global_wrist_ref:
                 if self.use_both_wrists:
@@ -176,60 +185,60 @@ class HF_Pose(nn.Module):
         else:
             return out
 
-if __name__ == "__main__":
-    # For debugging purposes
-    import sys
-    sys.path.append('..')
+# if __name__ == "__main__":
+#     # For debugging purposes
+#     import sys
+#     sys.path.append('..')
 
-    TOTAL_FRAMES = 120
+#     TOTAL_FRAMES = 120
 
-    model = HF_Pose(
-                    microaction_window_size=15, num_joints=21, num_classes=24, 
-                    embedding_dim_final=256, use_2d_pose=False, dropout=0, microaction_overlap=0.50, # [0.0, 0.99)
-                    trajectory_atten_dim_per_head=4, trajectory_tcn_kernel_size=3, trajectory_tcn_stride=[1,2,2], trajectory_tcn_dilations=[1,2],
-                    use_global_wrist_reference=True, include_orientation_in_global_wrist_ref=True, use_both_wrists=True, separate_hands=True,
-                    tf_heads=8, tf_layers=2
-                ).cuda()
+#     model = HF_Pose(
+#                     microaction_window_size=15, num_joints=21, num_classes=24, 
+#                     embedding_dim_final=256, use_2d_pose=False, dropout=0, microaction_overlap=0.50, # [0.0, 0.99)
+#                     trajectory_atten_dim_per_head=4, trajectory_tcn_kernel_size=3, trajectory_tcn_stride=[1,2,2], trajectory_tcn_dilations=[1,2],
+#                     use_global_wrist_reference=True, include_orientation_in_global_wrist_ref=True, use_both_wrists=True, separate_hands=True,
+#                     tf_heads=8, tf_layers=2
+#                 ).cuda()
 
 
-    N, C, T, V, M = 1, 3, TOTAL_FRAMES, 21, 2
+#     N, C, T, V, M = 1, 3, TOTAL_FRAMES, 21, 2
 
-    x = torch.randn(N,C,T,V,M).cuda()
-    out=model(x)
+#     x = torch.randn(N,C,T,V,M).cuda()
+#     out=model(x)
     
-    if isinstance(out, tuple):
-        for item in out:
-            print(item.shape)
+#     if isinstance(out, tuple):
+#         for item in out:
+#             print(item.shape)
 
-    else:
-        print(out.shape)
+#     else:
+#         print(out.shape)
 
-    print('Model total # params:', count_params(model))
+#     print('Model total # params:', count_params(model))
 
-    ### Efficiency metrics
+#     ### Efficiency metrics
 
-    flops, params = profile(model, inputs=(x,))
+#     flops, params = profile(model, inputs=(x,))
 
-    print(f"FLOPs: {flops / 1e9} GFLOPs")
-    print("#param: ", params)
+#     print(f"FLOPs: {flops / 1e9} GFLOPs")
+#     print("#param: ", params)
 
 
-    num_samples = 100  # Adjust as needed
-    total_time = 0
+#     num_samples = 100  # Adjust as needed
+#     total_time = 0
 
-    for _ in tqdm(range(num_samples)):
-        start_time = time.time()
-        with torch.no_grad():
-            _ = model(x)
-        end_time = time.time()
-        total_time += end_time - start_time
+#     for _ in tqdm(range(num_samples)):
+#         start_time = time.time()
+#         with torch.no_grad():
+#             _ = model(x)
+#         end_time = time.time()
+#         total_time += end_time - start_time
 
-    average_inference_time = total_time / num_samples
-    print(f"Average Inference Time: {average_inference_time} seconds")
+#     average_inference_time = total_time / num_samples
+#     print(f"Average Inference Time: {average_inference_time} seconds")
 
-    gflops = flops / (average_inference_time * 1e9)
-    print(f"GFLOPS: {gflops} GFLOPs/s")
+#     gflops = flops / (average_inference_time * 1e9)
+#     print(f"GFLOPS: {gflops} GFLOPs/s")
     
-    gflop_dict, _ = flop_count(model, (x,))
-    gflops = sum(gflop_dict.values())
-    print("GFLOPs: ", gflops)
+#     gflop_dict, _ = flop_count(model, (x,))
+#     gflops = sum(gflop_dict.values())
+#     print("GFLOPs: ", gflops)

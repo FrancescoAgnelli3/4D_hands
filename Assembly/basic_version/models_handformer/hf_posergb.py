@@ -6,8 +6,8 @@ sys.path.insert(0, '')
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
-from thop import profile
-from fvcore.nn.flop_count import flop_count
+# from thop import profile
+# from fvcore.nn.flop_count import flop_count
 from tqdm import tqdm
 import time
 
@@ -134,68 +134,68 @@ class HF_PoseRGB(nn.Module):
             return out, out_verb, out_noun, l1_loss.unsqueeze(0)
 
         
-if __name__ == "__main__":
-    # For debugging purposes
-    import sys
-    sys.path.append('..')
+# if __name__ == "__main__":
+#     # For debugging purposes
+#     import sys
+#     sys.path.append('..')
 
-    TOTAL_FRAMES = 120
-    rgb_input_feat_dim= 1536 #  2048  # 
-    window_size = 15
+#     TOTAL_FRAMES = 120
+#     rgb_input_feat_dim= 1536 #  2048  # 
+#     window_size = 15
 
-    model = HF_PoseRGB(
-                    microaction_window_size=window_size, num_joints=21, num_classes=1380, num_verbs=24, num_nouns=90,
-                    embedding_dim_final=256, use_2d_pose=False, dropout=0,
-                    trajectory_atten_dim_per_head=4, trajectory_tcn_kernel_size=3, trajectory_tcn_stride=[1,2,2], trajectory_tcn_dilations=[1,2],
-                    use_global_wrist_reference=True, include_orientation_in_global_wrist_ref=True, use_both_wrists=True, separate_hands=True,
-                    tf_heads=8, tf_layers=2,
-                    rgb_input_feat_dim=rgb_input_feat_dim, MIB_block=True,
-                    modality='both', rgb_frames_to_use=-1 # -1: Use 1 rgb per microaction for all microactions
-                ).cuda()
-
-
-    N, C, T, V, M = 1, 3, TOTAL_FRAMES, 21, 2
-
-    x = torch.randn(N,C,T,V,M).cuda()
-    x_rgb = torch.randn(N, (TOTAL_FRAMES//window_size), rgb_input_feat_dim).cuda()
-
-    out, out_v, out_n, feat_ant_loss =model(x, x_rgb, return_atten_map=False)
-
-    print(out.shape)
-    print(out_v.shape)
-    print(out_n.shape)
-    print(feat_ant_loss.shape)    
-
-    print('Model total # params:', count_params(model))
+#     model = HF_PoseRGB(
+#                     microaction_window_size=window_size, num_joints=21, num_classes=1380, num_verbs=24, num_nouns=90,
+#                     embedding_dim_final=256, use_2d_pose=False, dropout=0,
+#                     trajectory_atten_dim_per_head=4, trajectory_tcn_kernel_size=3, trajectory_tcn_stride=[1,2,2], trajectory_tcn_dilations=[1,2],
+#                     use_global_wrist_reference=True, include_orientation_in_global_wrist_ref=True, use_both_wrists=True, separate_hands=True,
+#                     tf_heads=8, tf_layers=2,
+#                     rgb_input_feat_dim=rgb_input_feat_dim, MIB_block=True,
+#                     modality='both', rgb_frames_to_use=-1 # -1: Use 1 rgb per microaction for all microactions
+#                 ).cuda()
 
 
-    ### Efficiency metrics
+#     N, C, T, V, M = 1, 3, TOTAL_FRAMES, 21, 2
 
-    flops, params = profile(model, inputs=(x,x_rgb))
+#     x = torch.randn(N,C,T,V,M).cuda()
+#     x_rgb = torch.randn(N, (TOTAL_FRAMES//window_size), rgb_input_feat_dim).cuda()
 
-    print(f"FLOPs: {flops / 1e9} GFLOPs")
-    print("#param: ", params)
+#     out, out_v, out_n, feat_ant_loss =model(x, x_rgb, return_atten_map=False)
+
+#     print(out.shape)
+#     print(out_v.shape)
+#     print(out_n.shape)
+#     print(feat_ant_loss.shape)    
+
+#     print('Model total # params:', count_params(model))
 
 
-    num_samples = 100  # Adjust as needed
-    total_time = 0
+#     ### Efficiency metrics
 
-    for _ in tqdm(range(num_samples)):
-        start_time = time.time()
-        with torch.no_grad():
-            _ = model(x,x_rgb)
-        end_time = time.time()
-        total_time += end_time - start_time
+#     flops, params = profile(model, inputs=(x,x_rgb))
 
-    average_inference_time = total_time / num_samples
-    print(f"Average Inference Time: {average_inference_time} seconds")
+#     print(f"FLOPs: {flops / 1e9} GFLOPs")
+#     print("#param: ", params)
 
-    gflops = flops / (average_inference_time * 1e9)
-    print(f"GFLOPS: {gflops} GFLOPs/s")
+
+#     num_samples = 100  # Adjust as needed
+#     total_time = 0
+
+#     for _ in tqdm(range(num_samples)):
+#         start_time = time.time()
+#         with torch.no_grad():
+#             _ = model(x,x_rgb)
+#         end_time = time.time()
+#         total_time += end_time - start_time
+
+#     average_inference_time = total_time / num_samples
+#     print(f"Average Inference Time: {average_inference_time} seconds")
+
+#     gflops = flops / (average_inference_time * 1e9)
+#     print(f"GFLOPS: {gflops} GFLOPs/s")
     
-    gflop_dict, _ = flop_count(model, (x,x_rgb))
-    gflops = sum(gflop_dict.values())
-    print("GFLOPs: ", gflops)
+#     gflop_dict, _ = flop_count(model, (x,x_rgb))
+#     gflops = sum(gflop_dict.values())
+#     print("GFLOPs: ", gflops)
 
 
 

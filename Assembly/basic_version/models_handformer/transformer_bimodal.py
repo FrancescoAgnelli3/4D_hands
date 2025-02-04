@@ -23,8 +23,8 @@ from torch import nn, Tensor
 from torch.autograd import Variable
 import numpy as np
 
-from thop import profile
-from fvcore.nn.flop_count import flop_count
+# from thop import profile
+# from fvcore.nn.flop_count import flop_count
 from tqdm import tqdm
 import time
 
@@ -344,50 +344,50 @@ class Bimodal_TF(nn.Module):
 
 
 
-if __name__=="__main__":
+# if __name__=="__main__":
     
-    B = 1
-    num_segments = 8
-    embed_dim = 256    
-    batch_seq_feat = torch.randn(B, num_segments, embed_dim*2).cuda()
+#     B = 1
+#     num_segments = 8
+#     embed_dim = 256    
+#     batch_seq_feat = torch.randn(B, num_segments, embed_dim*2).cuda()
 
-    mdl = Bimodal_TF(embed_dim, num_heads_=8, num_layers_=4, dropout=0.1, return_all_tokens=False, modality='both', rgb_frames_to_use=-1).cuda()
+#     mdl = Bimodal_TF(embed_dim, num_heads_=8, num_layers_=4, dropout=0.1, return_all_tokens=False, modality='both', rgb_frames_to_use=-1).cuda()
 
-    out, outv, outn, attention_maps = mdl(batch_seq_feat, return_attn_map=True)
-    print(out.shape)
-    # print(out_frames.shape)
-    print(type(attention_maps), len(attention_maps))
-    print(attention_maps[0].shape)
+#     out, outv, outn, attention_maps = mdl(batch_seq_feat, return_attn_map=True)
+#     print(out.shape)
+#     # print(out_frames.shape)
+#     print(type(attention_maps), len(attention_maps))
+#     print(attention_maps[0].shape)
 
-    print('Model total # params:', count_params(mdl))
+#     print('Model total # params:', count_params(mdl))
 
-    ### Efficiency metrics
-    x = batch_seq_feat.cuda()
+#     ### Efficiency metrics
+#     x = batch_seq_feat.cuda()
 
-    flops, params = profile(mdl, inputs=(x,))
+#     flops, params = profile(mdl, inputs=(x,))
 
-    print(f"FLOPs: {flops / 1e9} GFLOPs")
-    print("#param: ", params)
+#     print(f"FLOPs: {flops / 1e9} GFLOPs")
+#     print("#param: ", params)
 
 
-    num_samples = 100  # Adjust as needed
-    total_time = 0
+#     num_samples = 100  # Adjust as needed
+#     total_time = 0
 
-    for _ in tqdm(range(num_samples)):
-        start_time = time.time()
-        with torch.no_grad():
-            _ = mdl(x,)
-        end_time = time.time()
-        total_time += end_time - start_time
+#     for _ in tqdm(range(num_samples)):
+#         start_time = time.time()
+#         with torch.no_grad():
+#             _ = mdl(x,)
+#         end_time = time.time()
+#         total_time += end_time - start_time
 
-    average_inference_time = total_time / num_samples
-    print(f"Average Inference Time: {average_inference_time} seconds")
+#     average_inference_time = total_time / num_samples
+#     print(f"Average Inference Time: {average_inference_time} seconds")
 
-    gflops = flops / (average_inference_time * 1e9)
-    print(f"GFLOPS: {gflops} GFLOPs/s")
+#     gflops = flops / (average_inference_time * 1e9)
+#     print(f"GFLOPS: {gflops} GFLOPs/s")
 
-    print(x.shape)
+#     print(x.shape)
     
-    gflop_dict, _ = flop_count(mdl, (x,))
-    gflops = sum(gflop_dict.values())
-    print("GFLOPs: ", gflops)
+#     gflop_dict, _ = flop_count(mdl, (x,))
+#     gflops = sum(gflop_dict.values())
+#     print("GFLOPs: ", gflops)

@@ -6,8 +6,8 @@ import torch.nn as nn
 import torch
 from math import ceil
 import time
-from thop import profile
-from fvcore.nn.flop_count import flop_count
+# from thop import profile
+# from fvcore.nn.flop_count import flop_count
 from tqdm import tqdm
 
 from .ms_tcn_1D import MultiScale_TemporalConv
@@ -188,43 +188,43 @@ class MicroactionEncoder(nn.Module):
         out = x.mean(dim=[2,3,4])
         return out
 
-if __name__ == "__main__":
-    import sys
-    sys.path.append('..')
+# # if __name__ == "__main__":
+#     import sys
+#     sys.path.append('..')
 
-    microaction_window_size = 15
-    model = MicroactionEncoder(embedding_dim=256, num_heads=[16,32,64], dropout=0.2, num_frames=microaction_window_size,\
-                               num_joints=21, num_hands=2, stride=[1,2,2], kernel_size=3, dilations=[1,2], global_wrist_ref=False).cuda()
+#     microaction_window_size = 15
+#     model = MicroactionEncoder(embedding_dim=256, num_heads=[16,32,64], dropout=0.2, num_frames=microaction_window_size,\
+#                                num_joints=21, num_hands=2, stride=[1,2,2], kernel_size=3, dilations=[1,2], global_wrist_ref=False).cuda()
 
-    N, C, T, V, M = 1, 3, microaction_window_size, 21, 2
-    x = torch.randn(N,C,T,V,M).cuda()
-    out = model(x)
+#     N, C, T, V, M = 1, 3, microaction_window_size, 21, 2
+#     x = torch.randn(N,C,T,V,M).cuda()
+#     out = model(x)
 
-    print(out.shape)
-    print('Model total # params:', count_params(model))
+#     print(out.shape)
+#     print('Model total # params:', count_params(model))
 
-    ### Efficiency metrics
+#     ### Efficiency metrics
 
-    flops, params = profile(model, inputs=(x,))
-    print(f"FLOPs: {flops / 1e9} GFLOPs")
-    print("#param: ", params)
+#     flops, params = profile(model, inputs=(x,))
+#     print(f"FLOPs: {flops / 1e9} GFLOPs")
+#     print("#param: ", params)
 
-    num_samples = 100  # Adjust as needed
-    total_time = 0
+#     num_samples = 100  # Adjust as needed
+#     total_time = 0
 
-    for _ in tqdm(range(num_samples)):
-        start_time = time.time()
-        with torch.no_grad():
-            _ = model(x,) #, rgb_batch)
-        end_time = time.time()
-        total_time += end_time - start_time
+#     for _ in tqdm(range(num_samples)):
+#         start_time = time.time()
+#         with torch.no_grad():
+#             _ = model(x,) #, rgb_batch)
+#         end_time = time.time()
+#         total_time += end_time - start_time
 
-    average_inference_time = total_time / num_samples
-    print(f"Average Inference Time: {average_inference_time} seconds")
+#     average_inference_time = total_time / num_samples
+#     print(f"Average Inference Time: {average_inference_time} seconds")
 
-    gflops = flops / (average_inference_time * 1e9)
-    print(f"GFLOPS: {gflops} GFLOPs/s")
+#     gflops = flops / (average_inference_time * 1e9)
+#     print(f"GFLOPS: {gflops} GFLOPs/s")
     
-    gflop_dict, _ = flop_count(model, (x,))
-    gflops = sum(gflop_dict.values())
-    print("GFLOPs: ", gflops)
+#     gflop_dict, _ = flop_count(model, (x,))
+#     gflops = sum(gflop_dict.values())
+#     print("GFLOPs: ", gflops)
