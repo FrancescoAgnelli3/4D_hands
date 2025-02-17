@@ -2,3 +2,6 @@
 /EgoExo/graph_version/results/*
 /Assembly/basic_version/results/*
 /Assembly/HandFormer
+/Assembly/nri/data
+/Assembly/nri/runs
+/Assembly/nri/out
