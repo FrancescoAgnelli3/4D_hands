@@ -4,30 +4,21 @@ import torch
 import numpy as np
 
 import torch
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard.writer import SummaryWriter
 import torch.nn as nn
-import torch.optim as optim
-
-# dnri
-import dnri.training.train as train
-from dnri.utils.data_utils import *
-
 from tsl.data import SpatioTemporalDataset
-from tsl.ops.connectivity import edge_index_to_adj
 from tsl.data.datamodule import SpatioTemporalDataModule, TemporalSplitter
 from tsl.data.preprocessing import StandardScaler
 from tsl.nn.blocks.encoders import RNN
 from tsl.nn.layers import NodeEmbedding, DiffConv
 from einops.layers.torch import Rearrange  # reshape data with Einstein notation
+from torch.optim import Adam
 
 
 def normalize(y):
-	m1 = y.mean(axis=(1,0))
-	s1 = y.std(axis=(1,0))
-	return (y-m1)/s1
-
-# def normalize(y):
-#     return y
+    max_norm = np.max(np.linalg.norm(y, axis=-1))
+    return y/max_norm
+	# return y
 
 def equalize_ndarray(arr, axis=0, target_size=None):
 	"""
@@ -71,17 +62,18 @@ def compute_velocity(points, delta_t=1):
 	np.ndarray: A numpy array of shape (N-1, 3) representing the velocity between consecutive points.
 	"""
 	velocities = (points[1:] - points[:-1])*delta_t
-	return velocities
+	norm_points = np.max(np.linalg.norm(points, axis=-1))
+	return velocities/norm_points
 
 def add_ohe(points):
 	ohe = np.repeat(np.expand_dims(np.eye(points.shape[1]), axis=0), points.shape[0], axis=0)
 	points = np.concatenate([points, ohe], axis=-1)
 	return points
 
-def load_files(folder_path, compute_velocity_b=True, equalize=True, ohe = True, target_size=100):
+def load_files(folder_path, compute_velocity_b=True, equalize=True, ohe = False, target_size=100):
 
 	# load train, val and test data	
-	pattern = os.path.join(folder_path, 'tr*' + '*.npy')
+	pattern = os.path.join(folder_path, '*.npy')
 	file_names = glob.glob(pattern)
 	data = []
 	for file in file_names:
@@ -93,33 +85,42 @@ def load_files(folder_path, compute_velocity_b=True, equalize=True, ohe = True, 
 		if equalize:
 			d, delta_t = equalize_ndarray(d, axis=0, target_size=target_size)
 		
+		for i in range(d.shape[0]):
+			d[i] = normalize(d[i])
 		
 		# add velocity
-		if compute_velocity_b:
+		if compute_velocity_b and equalize:
 			d = np.pad(d, ((0, 0), (0, 0), (0, 3)), mode='constant', constant_values=0)
-			velocities = compute_velocity(d[:, :, :3], delta_t)
+			velocities = compute_velocity(d[:, :, :3], delta_t) # type: ignore
 			d[1:, :, 3:] = velocities
-		d = normalize(d)
 
 		if ohe:
 			d = add_ohe(d)	
 		data.append(d)
 
 	data = np.array(data, dtype = np.float32)
+	
 
 	print("Data len: ", len(data))
 	return data
 
-path = "/home/studenti/agnelli/projects/nri/data"
-data = load_files(path)
-data = data.reshape(-1, 42, 48)
+path = "/home/studenti/agnelli/projects/4D_hands/Assembly/nri/data"
+compute_velocity_b = True
+ohe = False
+data = load_files(path, compute_velocity_b=compute_velocity_b)
+input_size = 3
+if compute_velocity_b:
+    input_size += 3
+if ohe:
+    input_size += 42
+data = data.reshape(-1, 42, 3)
 edge_index = torch.tensor([[4,19],[3,16],[2,13],[1,10],[19,18],[16,15],[13,12],[10,9],[18,17],[15,14],[12,11],[9,8],[17,5],[14,5],[11,5],[8,5],[0,7],[7,6],[6,5],[20,5]])
 edge_index = torch.cat([edge_index,edge_index+21], dim=0).permute(1,0)
 edge_weight = torch.ones(edge_index.shape[1])
 adj = (edge_index, edge_weight)
 
 torch_dataset = SpatioTemporalDataset(target=data,
-                                      connectivity=adj,
+                                      connectivity=adj, # type: ignore
                                       horizon=20,
                                       window=80,
                                       stride=100)
@@ -193,6 +194,8 @@ def train_test(model, train_loader, test_loader, criterion, optimizer, metric, d
         for batch in train_loader:
             inputs, targets = batch.input.to(device), batch.target.to(device)
             x = inputs.x
+            # remove velocity:
+            x = x[:,:,:,:3]
             # edge_index = dense_to_sparse(inputs.edge_index.to(dtype=torch.long))[0]
             edge_index = inputs.edge_index.to(dtype=torch.long)
 
@@ -200,12 +203,12 @@ def train_test(model, train_loader, test_loader, criterion, optimizer, metric, d
             outputs = model(x, edge_index)
             diff_pred = torch.norm(outputs[:,:,edge_index[0], :3]-outputs[:,:,edge_index[1], :3], dim = -1)
             diff_true = torch.norm(targets.y[:,:,edge_index[0], :3]-targets.y[:,:,edge_index[1], :3], dim = -1)
-            loss = criterion(outputs, targets.y) + criterion(diff_pred, diff_true)
+            loss = criterion(outputs[:,:,:,:3], targets.y[:,:,:,:3]) + criterion(diff_pred, diff_true)
             loss.backward()
             optimizer.step()
             
             running_loss += loss.item() * x.size(0)
-            running_metric += metric(outputs, targets.y).item() * x.size(0)
+            running_metric += metric(outputs[:,:,:,:3], targets.y[:,:,:,:3]).item() * x.size(0)
             total_samples += x.size(0)
 
         epoch_train_loss = running_loss / total_samples
@@ -214,8 +217,8 @@ def train_test(model, train_loader, test_loader, criterion, optimizer, metric, d
         if scheduler is not None:
             scheduler.step(epoch_train_loss)
 
-        writer.add_scalar("Loss", epoch_train_loss, epoch)
-        writer.add_scalar("Metric", epoch_train_metric, epoch)
+        writer.add_scalar("Loss/train", epoch_train_loss, epoch)
+        writer.add_scalar("Metric/train", epoch_train_metric, epoch)
 
         running_loss = 0.0
         running_metric = 0.0
@@ -225,14 +228,14 @@ def train_test(model, train_loader, test_loader, criterion, optimizer, metric, d
             for batch in test_loader:
                 inputs, targets = batch.input.to(device), batch.target.to(device)
                 x = inputs.x
+                # remove velocity:
+                x = x[:,:,:,:3]
                 # edge_index = dense_to_sparse(inputs.edge_index.to(dtype=torch.long))[0]
                 edge_index = inputs.edge_index.to(dtype=torch.long)
-
                 outputs = model(x, edge_index)
-                loss = criterion(outputs, targets.y)
                 
-                running_loss += loss.item() * x.size(0)
-                running_metric += metric(outputs, targets.y).item() * x.size(0)
+                running_loss += criterion(outputs[:,:,:,:3], targets.y[:,:,:,:3]).item() * x.size(0)
+                running_metric += metric(outputs[:,:,:,:3], targets.y[:,:,:,:3]).item() * x.size(0)
                 total_samples += x.size(0)
 
         epoch_test_loss = running_loss / total_samples
@@ -245,15 +248,15 @@ def train_test(model, train_loader, test_loader, criterion, optimizer, metric, d
     
     writer.close()
 
-for hc in [16, 32, 64, 128, 256, 512]:
+for hc in [16, 32, 64, 128, 256, 512, 1024]:
     hidden_size = hc   #@param
     rnn_layers = 3     #@param
     gnn_kernel = 3     #@param
     model_name = f"hc_{hidden_size}_rnn_{rnn_layers}_gnn_{gnn_kernel}"
 
-    input_size = torch_dataset.n_channels   # 1 channel
-    n_nodes = torch_dataset.n_nodes         # 207 nodes
-    horizon = torch_dataset.horizon         # 12 time steps
+    input_size = torch_dataset.n_channels  
+    n_nodes = torch_dataset.n_nodes         
+    horizon = torch_dataset.horizon         
 
     stgnn = TimeThenSpaceModel(input_size=input_size,
                             n_nodes=n_nodes,
@@ -275,7 +278,7 @@ for hc in [16, 32, 64, 128, 256, 512]:
 
     criterion = nn.MSELoss()
     metric = nn.L1Loss()
-    optimizer = optim.Adam(stgnn.parameters(), lr=learning_rate)
+    optimizer = Adam(stgnn.parameters(), lr=learning_rate)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
 
     # Train and test the model
